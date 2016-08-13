@@ -1,0 +1,131 @@
+---
+title: "Analysis of data on physical activity using Machine Learning techniques."
+author: Debsubhra Roy
+output:
+  html_document:
+    keep_md: true
+---
+   
+## Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: 
+http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+
+## Data
+
+The data for the training set is available at: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv   
+   
+The data for the test is available at: https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv   
+   
+Download the datasets
+```{r}
+loadcsvdata <- function(url, nastrings) {
+    temp <- tempfile()
+    download.file(url, temp, method = "curl")
+    data <- read.csv(temp, na.string = nastrings)
+    unlink(temp)
+    return(data)
+}
+
+trainurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+train <- loadcsvdata(trainurl, c("", "NA", "#DIV/0!"))
+
+testurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+test <- loadcsvdata(testurl, c("", "NA", "#DIV/0!"))
+
+#train <- train[,-c(1:7)]
+#test <- test[,-c(1:7)]
+
+dim(train)
+colnames(train)
+table(train$classe)
+```
+
+## Preprocessing of the data
+   
+We will partition the data using R caret package into training and validation set.
+```{r}
+library(caret)
+set.seed(369)
+trainingSet <- createDataPartition(train$class, p=0.8, list=FALSE)
+training <- train[trainingSet,]
+validation <- train[-trainingSet,]
+```
+
+### Feature selection
+   
+Clean up the data set of columns with zero variance, missing values and descriptive values.
+```{r}
+# exclude near zero variance features
+nzvcol <- nearZeroVar(training)
+
+# exclude columns with missing & null values and descriptive values
+cntlength <- sapply(training, function(x) {
+    sum(!(is.na(x) | x == ""))
+})
+
+nullcol <- names(cntlength[cntlength < 0.6 * length(training$classe)])
+descriptcol <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", 
+    "cvtd_timestamp", "new_window", "num_window")
+excludecols <- c(descriptcol, nullcol)
+training <- training[, !names(training) %in% excludecols]
+```
+    
+## Model the training samples
+
+We will use random forest technique to model the training samples.
+```{r}
+library(randomForest)
+rfModel <- randomForest(classe ~ ., data = training, importance = TRUE, ntrees = 300)
+
+print(rfModel)
+par(mar=c(3,4,4,4))                               
+plot(rfModel)  
+varImpPlot(rfModel,cex=.5)
+```
+
+## Model Validation
+   
+We will test our model performance on the training samples and the cross validation samples.
+
+### Training set accuracy
+
+```{r}
+ptraining <- predict(rfModel, training)
+print(confusionMatrix(ptraining, training$classe))
+```
+   
+### Validation set accuracy
+   
+Check for prediction accuracy on cross validation samples.
+```{r}
+pvalidation <- predict(rfModel, validation)
+print(confusionMatrix(pvalidation, validation$classe))
+#validation$classe
+```
+
+The cross validation accuracy is 99.41% and the out-of-sample error is therefore 0.59% so our model performs quite good.
+
+## Test sample prediction
+   
+```{r}
+ptest <- predict(rfModel, test)
+ptest
+```
+
+### Save the output to the files
+   
+```{r}
+answers <- as.vector(ptest)
+
+pml_write_files = function(x) {
+    n = length(x)
+    for (i in 1:n) {
+        filename = paste0("problem_id_", i, ".txt")
+        write.table(x[i], file = filename, quote = FALSE, row.names = FALSE, 
+            col.names = FALSE)
+    }
+}
+
+pml_write_files(answers)
+```
